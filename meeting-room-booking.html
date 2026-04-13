@@ -292,14 +292,13 @@ async function loadReservations() {
     const res = await fetch(GAS_URL);
     const json = await res.json();
     if (json.status === 'ok') {
-      reservations = json.data.map(r => ({
-        id: Number(r.id),
-        name: String(r.name),
-        date: String(r.date),
-        start: String(r.start),
-        end: String(r.end),
-        ci: Math.abs(hashCode(String(r.name))) % 6
-      }));
+      reservations = json.data.map(r => {
+        const d = new Date(r.date), s = new Date(r.start), e = new Date(r.end);
+        const date = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+        const start = String(s.getHours()).padStart(2,'0')+':'+String(s.getMinutes()).padStart(2,'0');
+        const end   = String(e.getHours()).padStart(2,'0')+':'+String(e.getMinutes()).padStart(2,'0');
+        return { id: Number(r.id), name: String(r.name), date, start, end, ci: Math.abs(hashCode(String(r.name))) % 6 };
+      });
       refresh();
     }
   } catch(e) {
@@ -407,7 +406,7 @@ function updatePanel() {
   const now=new Date(), h=String(now.getHours()).padStart(2,'0'), m=String(now.getMinutes()).padStart(2,'0');
   document.getElementById('infoTime').textContent=`${h}:${m}`;
   const DW=['日','月','火','水','木','金','土'];
-  document.getElementById('infoDate').textContent=`${now.getFullYear()}�t${now.getMonth()+1}月${now.getDate()}日（${DW[now.getDay()]}）`;
+  document.getElementById('infoDate').textContent=now.getFullYear()+'\u5e74'+(now.getMonth()+1)+'\u6708'+now.getDate()+'\u65e5\uff08'+DW[now.getDay()]+'\uff09';
 
   const today=todayS(), nowM=now.getHours()*60+now.getMinutes();
   const cur=reservations.find(r=>r.date===today&&toM(r.start)<=nowM&&nowM<toM(r.end));
