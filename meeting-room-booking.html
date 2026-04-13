@@ -390,7 +390,7 @@ const START_HOUR = 8, END_HOUR = 21, HOUR_H = 60;
 let nextId = 100;
 
 // ====== Google Apps Script Web App URL を貼り付け ======
-const API_URL = 'https://script.google.com/macros/s/AKfycbz1twpCLjKS7P7bHgJyLdUADZFp1GFf0zY_-KZVp31NqrIjCjavo9F2aYb_N8BPOAS2/exec';
+const API_URL = 'PASTE_YOUR_GAS_WEBAPP_URL_HERE';
 // =======================================================
 
 let MEMBERS = [];
@@ -445,22 +445,36 @@ async function addMember() {
   const name = input.value.trim();
   if (!name) { toast('名前を入力してください'); return; }
   if (MEMBERS.includes(name)) { toast('既に登録されています'); return; }
-  const res = await apiPost('addMember', {name});
-  if (!res.ok) { toast('追加失敗: ' + (res.error||'')); return; }
-  MEMBERS = res.members || MEMBERS;
-  reservations = res.reservations || reservations;
+  MEMBERS.push(name);
   renderMemberModal();
   toast(`${name}さんを追加しました`);
+  try {
+    const res = await apiPost('addMember', {name});
+    if (!res.ok) throw new Error(res.error||'unknown');
+    MEMBERS = res.members || MEMBERS;
+    renderMemberModal();
+  } catch(e) {
+    MEMBERS = MEMBERS.filter(m => m !== name);
+    renderMemberModal();
+    toast('追加に失敗しました: ' + e.message);
+  }
 }
 
 async function removeMember(idx) {
   const name = MEMBERS[idx];
-  const res = await apiPost('removeMember', {name});
-  if (!res.ok) { toast('削除失敗: ' + (res.error||'')); return; }
-  MEMBERS = res.members || MEMBERS;
-  reservations = res.reservations || reservations;
+  MEMBERS.splice(idx, 1);
   renderMemberModal();
   toast(`${name}さんを削除しました`);
+  try {
+    const res = await apiPost('removeMember', {name});
+    if (!res.ok) throw new Error(res.error||'unknown');
+    MEMBERS = res.members || MEMBERS;
+    renderMemberModal();
+  } catch(e) {
+    MEMBERS.push(name);
+    renderMemberModal();
+    toast('削除に失敗しました: ' + e.message);
+  }
 }
 
 function timeOptions(sel) {
@@ -610,10 +624,21 @@ async function submitNew(){
   if(toM(start)>=toM(end)){toast('終了は開始より後にしてください');return;}
   if(reservations.find(r=>r.date===date&&toM(r.start)<toM(end)&&toM(r.end)>toM(start))){toast('時間が重複しています');return;}
   const ci = Math.floor(Math.random()*6);
-  const res = await apiPost('addReservation', {name, purpose, date, start, end, ci});
-  if(!res.ok){toast('登録失敗: '+(res.error||''));return;}
-  reservations = res.reservations || reservations;
-  closeModal();refresh();toast(`${name}さんの予約を登録しました`);
+  // 楽観的更新: サーバー応答を待たずに先にUI反映
+  const tmpId = 'tmp_' + Date.now() + '_' + Math.random();
+  reservations.push({id: tmpId, name, purpose, date, start, end, ci, _pending: true});
+  closeModal(); refresh(); toast(`${name}さんの予約を登録しました`);
+  // 裏でサーバー送信→レスポンスで正式データに差し替え
+  try {
+    const res = await apiPost('addReservation', {name, purpose, date, start, end, ci});
+    if(!res.ok){ throw new Error(res.error||'unknown'); }
+    reservations = res.reservations || reservations;
+    refresh();
+  } catch(e) {
+    reservations = reservations.filter(r => r.id !== tmpId);
+    refresh();
+    toast('登録に失敗しました: ' + e.message);
+  }
 }
 
 function openEdit(id){
@@ -647,10 +672,20 @@ async function submitEdit(id){
   if(toM(start)>=toM(end)){toast('終了は開始より後にしてください');return;}
   const conflict=reservations.find(x=>x.id!==id&&x.date===date&&toM(x.start)<toM(end)&&toM(x.end)>toM(start));
   if(conflict){toast('時間が重複しています');return;}
-  const res = await apiPost('updateReservation', {id, name, purpose, date, start, end, ci: r.ci|0});
-  if(!res.ok){toast('更新失敗: '+(res.error||''));return;}
-  reservations = res.reservations || reservations;
-  closeModal();refresh();toast(`予約を更新しました`);
+  // 楽観的更新
+  const backup = {...r};
+  r.name=name; r.purpose=purpose; r.date=date; r.start=start; r.end=end;
+  closeModal(); refresh(); toast('予約を更新しました');
+  try {
+    const res = await apiPost('updateReservation', {id, name, purpose, date, start, end, ci: r.ci|0});
+    if(!res.ok){ throw new Error(res.error||'unknown'); }
+    reservations = res.reservations || reservations;
+    refresh();
+  } catch(e) {
+    Object.assign(r, backup);
+    refresh();
+    toast('更新に失敗しました: ' + e.message);
+  }
 }
 
 function confirmDel(id){
@@ -665,10 +700,19 @@ function confirmDel(id){
 
 async function doDelete(id){
   const r=reservations.find(x=>x.id===id); if(!r)return;
-  const res = await apiPost('deleteReservation', {id});
-  if(!res.ok){toast('取消失敗: '+(res.error||''));return;}
-  reservations = res.reservations || reservations;
-  closeModal();refresh();toast(`${r.name}さんの予約を取消しました`);
+  // 楽観的更新
+  reservations = reservations.filter(x => x.id !== id);
+  closeModal(); refresh(); toast(`${r.name}さんの予約を取消しました`);
+  try {
+    const res = await apiPost('deleteReservation', {id});
+    if(!res.ok){ throw new Error(res.error||'unknown'); }
+    reservations = res.reservations || reservations;
+    refresh();
+  } catch(e) {
+    reservations.push(r);
+    refresh();
+    toast('取消に失敗しました: ' + e.message);
+  }
 }
 
 function cancelCurrent(){
@@ -683,7 +727,10 @@ function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t
 function refresh(){renderHeader();renderGrid();updatePanel();}
 refresh();
 reload();
-setInterval(reload, 30000);
+// 他端末の変更を取り込むポーリング（5秒間隔）
+setInterval(reload, 5000);
+// タブがアクティブになったタイミングでも即時再取得
+document.addEventListener('visibilitychange', () => { if (!document.hidden) reload(); });
 setInterval(updatePanel,10000);
 setInterval(renderGrid,60000);
 setInterval(()=>{const n=new Date();document.getElementById('infoTime').textContent=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');},1000);
