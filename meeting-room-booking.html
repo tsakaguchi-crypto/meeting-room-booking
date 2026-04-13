@@ -179,7 +179,7 @@
 
   .upcoming-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .upcoming-info { flex: 1; min-width: 0; }
-  .upcoming-name { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .upcoming-name { font-size: 14px; font-weight: 600; white-space: nowraw; overflow: hidden; text-overflow: ellipsis; }
   .upcoming-time-text { font-size: 12px; color: #888; }
 
   .upcoming-del {
@@ -407,7 +407,7 @@ function updatePanel() {
   const now=new Date(), h=String(now.getHours()).padStart(2,'0'), m=String(now.getMinutes()).padStart(2,'0');
   document.getElementById('infoTime').textContent=`${h}:${m}`;
   const DW=['日','月','火','水','木','金','土'];
-  document.getElementById('infoDate').textContent=`${now.getFullYear()}�${now.getMonth()+1}月${now.getDate()}日（${DW[now.getDay()]）`;
+  document.getElementById('infoDate').textContent=`${now.getFullYear()}�t${now.getMonth()+1}月${now.getDate()}日（${DW[now.getDay()]}）`;
 
   const today=todayS(), nowM=now.getHours()*60+now.getMinutes();
   const cur=reservations.find(r=>r.date===today&&toM(r.start)<=nowM&&nowM<toM(r.end));
@@ -491,25 +491,25 @@ function openEdit(id){
 function confirmDel(id){
   const r=reservations.find(x=>x.id===id); if(!r)return;
   document.getElementById('modalBox').innerHTML=`
-    <div class="modal-title">予約を取消しますか></div>
+    <div class="modal-title">予約を取消しますか？</div>
     <div style="margin-bottom:8px"><div style="font-weight:600">${r.name}</div>
     <div style="color:#666;font-size:13px">${r.start}–${r.end}</div></div>
-    <div class="modal-btns"><button onclick="closeModal()">戻も</button><button class="btn-del" onclick="doDelete(${r.id})">取消する</button></div>`;
+    <div class="modal-btns"><button onclick="closeModal()">戻る</button><button class="btn-del" onclick="doDelete(${r.id})">取消する</button></div>`;
   document.getElementById('modalBg').classList.add('open');
 }
 
 async function doDelete(id){
   const r=reservations.find(x=>x.id===id);
   closeModal();
-  toast(`${r.name|さんの予約を取消刵...`);
+  toast(`${r.name}さんの予約を取消中...`);
   await apiDelete(id);
-  toast(`${r.name|さんの予約を取消しました`);
+  toast(`${r.name}さんの予約を取消しました`);
 }
 
 function cancelCurrent(){
   const today=todayS(),nowM=new Date().getHours()*60+new Date().getMinutes();
   const cur=reservations.find(r=>r.date===today&&toM(r.start)<=nowM&&nowM<toM(r.end));
-  cur?confirmDel(cur.id):toast('現在使用中予約はありませわ');
+  cur?confirmDel(cur.id):toast('現在使用中の予約はありません');
 }
 
 function closeModal(e){if(e&&e.target!==e.currentTarget)return;document.getElementById('modalBg').classList.remove('open');}
@@ -522,6 +522,6 @@ setInterval(loadReservations, 30000);
 setInterval(updatePanel,10000);
 setInterval(renderGrid,60000);
 setInterval(()=>{const n=new Date();document.getElementById('infoTime').textContent=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');},1000);
-</script>
+1/script>
 </body>
 </html>
