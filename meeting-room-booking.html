@@ -389,10 +389,35 @@ let weekOffset = 0;
 const START_HOUR = 8, END_HOUR = 21, HOUR_H = 60;
 let nextId = 100;
 
-const MEMBERS_KEY = 'meeting_room_members';
-const DEFAULT_MEMBERS = ['石田','田中','鈴木','佐藤','高橋','山本','中村','小林','加藤','吉田'];
-let MEMBERS = JSON.parse(localStorage.getItem(MEMBERS_KEY)) || [...DEFAULT_MEMBERS];
-function saveMembers() { localStorage.setItem(MEMBERS_KEY, JSON.stringify(MEMBERS)); }
+// ====== Google Apps Script Web App URL を貼り付け ======
+const API_URL = 'https://script.google.com/macros/s/AKfycbz1twpCLjKS7P7bHgJyLdUADZFp1GFf0zY_-KZVp31NqrIjCjavo9F2aYb_N8BPOAS2/exec';
+// =======================================================
+
+let MEMBERS = [];
+
+async function apiGet() {
+  const res = await fetch(API_URL);
+  return res.json();
+}
+async function apiPost(action, data) {
+  // GASのCORSプリフライトを回避するため text/plain で送信
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: {'Content-Type':'text/plain;charset=utf-8'},
+    body: JSON.stringify({action, ...data})
+  });
+  return res.json();
+}
+async function reload() {
+  try {
+    const data = await apiGet();
+    reservations = data.reservations || [];
+    MEMBERS = data.members || [];
+    refresh();
+  } catch(e) {
+    toast('接続エラー: ' + e.message);
+  }
+}
 
 function openMemberModal() {
   renderMemberModal();
@@ -415,21 +440,25 @@ function renderMemberModal() {
     </div>`;
 }
 
-function addMember() {
+async function addMember() {
   const input = document.getElementById('newMemberName');
   const name = input.value.trim();
   if (!name) { toast('名前を入力してください'); return; }
   if (MEMBERS.includes(name)) { toast('既に登録されています'); return; }
-  MEMBERS.push(name);
-  saveMembers();
+  const res = await apiPost('addMember', {name});
+  if (!res.ok) { toast('追加失敗: ' + (res.error||'')); return; }
+  MEMBERS = res.members || MEMBERS;
+  reservations = res.reservations || reservations;
   renderMemberModal();
   toast(`${name}さんを追加しました`);
 }
 
-function removeMember(idx) {
+async function removeMember(idx) {
   const name = MEMBERS[idx];
-  MEMBERS.splice(idx, 1);
-  saveMembers();
+  const res = await apiPost('removeMember', {name});
+  if (!res.ok) { toast('削除失敗: ' + (res.error||'')); return; }
+  MEMBERS = res.members || MEMBERS;
+  reservations = res.reservations || reservations;
   renderMemberModal();
   toast(`${name}さんを削除しました`);
 }
@@ -452,14 +481,7 @@ function offS(n) { const d=new Date(); d.setDate(d.getDate()+n); return fmtD(d);
 function toM(t) { const [h,m]=t.split(':').map(Number); return h*60+m; }
 function mToT(m) { return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'); }
 
-let reservations = [
-  { id:1, name:'石田', purpose:'定例MTG', date:todayS(), start:'09:00', end:'10:00', ci:0 },
-  { id:2, name:'田中', purpose:'クライアント打合せ', date:todayS(), start:'11:00', end:'12:00', ci:1 },
-  { id:3, name:'鈴木', purpose:'採用面接', date:todayS(), start:'14:00', end:'15:30', ci:2 },
-  { id:4, name:'佐藤', purpose:'企画会議', date:offS(1), start:'10:00', end:'11:30', ci:3 },
-  { id:5, name:'高橋', purpose:'1on1', date:offS(2), start:'13:00', end:'13:30', ci:4 },
-  { id:6, name:'石田', purpose:'マーケ定例', date:offS(4), start:'17:30', end:'18:30', ci:0 },
-];
+let reservations = [];
 
 function getWeekDates() {
   const now=new Date(); now.setDate(now.getDate()+weekOffset*7);
@@ -577,7 +599,7 @@ function openNewModal(date,time){
   document.getElementById('modalBg').classList.add('open');
 }
 
-function submitNew(){
+async function submitNew(){
   const name=document.getElementById('mName').value,
     purpose=document.getElementById('mPurpose').value.trim(),
     date=document.getElementById('mDate').value,
@@ -587,7 +609,10 @@ function submitNew(){
   if(!start||!end){toast('時刻を選択してください');return;}
   if(toM(start)>=toM(end)){toast('終了は開始より後にしてください');return;}
   if(reservations.find(r=>r.date===date&&toM(r.start)<toM(end)&&toM(r.end)>toM(start))){toast('時間が重複しています');return;}
-  reservations.push({id:nextId++,name,purpose,date,start,end,ci:Math.floor(Math.random()*6)});
+  const ci = Math.floor(Math.random()*6);
+  const res = await apiPost('addReservation', {name, purpose, date, start, end, ci});
+  if(!res.ok){toast('登録失敗: '+(res.error||''));return;}
+  reservations = res.reservations || reservations;
   closeModal();refresh();toast(`${name}さんの予約を登録しました`);
 }
 
@@ -611,7 +636,7 @@ function openEdit(id){
   document.getElementById('modalBg').classList.add('open');
 }
 
-function submitEdit(id){
+async function submitEdit(id){
   const r=reservations.find(x=>x.id===id); if(!r)return;
   const name=document.getElementById('eName').value,
     purpose=document.getElementById('ePurpose').value.trim(),
@@ -622,7 +647,9 @@ function submitEdit(id){
   if(toM(start)>=toM(end)){toast('終了は開始より後にしてください');return;}
   const conflict=reservations.find(x=>x.id!==id&&x.date===date&&toM(x.start)<toM(end)&&toM(x.end)>toM(start));
   if(conflict){toast('時間が重複しています');return;}
-  r.name=name; r.purpose=purpose; r.date=date; r.start=start; r.end=end;
+  const res = await apiPost('updateReservation', {id, name, purpose, date, start, end, ci: r.ci|0});
+  if(!res.ok){toast('更新失敗: '+(res.error||''));return;}
+  reservations = res.reservations || reservations;
   closeModal();refresh();toast(`予約を更新しました`);
 }
 
@@ -636,9 +663,11 @@ function confirmDel(id){
   document.getElementById('modalBg').classList.add('open');
 }
 
-function doDelete(id){
-  const r=reservations.find(x=>x.id===id);
-  reservations=reservations.filter(x=>x.id!==id);
+async function doDelete(id){
+  const r=reservations.find(x=>x.id===id); if(!r)return;
+  const res = await apiPost('deleteReservation', {id});
+  if(!res.ok){toast('取消失敗: '+(res.error||''));return;}
+  reservations = res.reservations || reservations;
   closeModal();refresh();toast(`${r.name}さんの予約を取消しました`);
 }
 
@@ -653,6 +682,8 @@ function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t
 
 function refresh(){renderHeader();renderGrid();updatePanel();}
 refresh();
+reload();
+setInterval(reload, 30000);
 setInterval(updatePanel,10000);
 setInterval(renderGrid,60000);
 setInterval(()=>{const n=new Date();document.getElementById('infoTime').textContent=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');},1000);
