@@ -726,11 +726,7 @@ function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t
 
 function refresh(){renderHeader();renderGrid();updatePanel();}
 refresh();
-reload();
-// 他端末の変更を取り込むポーリング（5秒間隔）
-setInterval(reload, 5000);
-// タブがアクティブになったタイミングでも即時再取得
-document.addEventListener('visibilitychange', () => { if (!document.hidden) reload(); });
+reload(); // ページ読み込み時のみ全件取得。以降は追加/編集/削除時のレスポンスで最新化
 setInterval(updatePanel,10000);
 setInterval(renderGrid,60000);
 setInterval(()=>{const n=new Date();document.getElementById('infoTime').textContent=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');},1000);
