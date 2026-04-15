@@ -179,6 +179,7 @@
   .res-c9  { background: #e8f5d7; border-color: #7cb342; color: #33691e; }
   .res-c10 { background: #efebe9; border-color: #795548; color: #3e2723; }
   .res-c11 { background: #e0e4f0; border-color: #3f51b5; color: #1a237e; }
+  .res-none { background: #f5f5f5; border-color: #bbb; color: #666; }
 
   .now-line {
     position: absolute; left: 0; right: 0;
@@ -331,6 +332,15 @@
     border-color: #333;
     box-shadow: 0 0 0 1px #fff inset;
   }
+  .swatch-none {
+    background: #fff;
+    border: 1px dashed #bbb;
+    color: #999;
+    font-size: 11px;
+    text-align: center;
+    line-height: 12px;
+  }
+  .swatch-none.selected { border: 2px solid #333; }
 
   .member-add-row { display: flex; gap: 8px; margin-top: 12px; }
 
@@ -409,7 +419,7 @@ const START_HOUR = 8, END_HOUR = 21, HOUR_H = 60;
 let nextId = 100;
 
 // ====== Google Apps Script Web App URL を貼り付け ======
-const API_URL = 'https://script.google.com/macros/s/AKfycbyNkB4tJhyHmBaP-HE4XvkDyb2q9j3fOHMuxMDTgEsqSMf46ZXeIceg-TRJSI8c5BSD9A/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbz_ObjwwMs3DP1zQxu_AU0aHBHnGd9E8mv9Umysctt09r1R2mbOqQsg3Jr6GoI-nlZEGA/exec';
 // =======================================================
 
 let MEMBERS = [];
@@ -443,18 +453,42 @@ function openMemberModal() {
   document.getElementById('modalBg').classList.add('open');
 }
 
-// メンバー名から対応する色indexを取得（未登録メンバーは null）
+// メンバー名から対応する色indexを取得（未登録 or 色未設定は null）
 function ciOf(name) {
   const m = MEMBERS.find(x => (typeof x === 'object' ? x.name : x) === name);
   if (!m) return null;
-  return (typeof m === 'object' ? (m.ci|0) : 0);
+  if (typeof m !== 'object') return null;
+  if (m.ci === null || m.ci === undefined || m.ci === '') return null;
+  const n = Number(m.ci);
+  return isNaN(n) ? null : (n|0);
 }
 function memberName(m) { return typeof m === 'object' ? m.name : m; }
 
+// よく使うメンバーを上に並べた配列を返す（予約数降順、同数は登録順）
+function sortedMembers() {
+  const counts = {};
+  MEMBERS.forEach(m => counts[memberName(m)] = 0);
+  reservations.forEach(r => {
+    if (counts[r.name] !== undefined) counts[r.name]++;
+  });
+  // indexを保持して安定ソート（同数は元の順）
+  return MEMBERS.map((m,i) => ({m, i}))
+    .sort((a,b) => {
+      const ca = counts[memberName(a.m)] || 0;
+      const cb = counts[memberName(b.m)] || 0;
+      if (cb !== ca) return cb - ca;
+      return a.i - b.i;
+    })
+    .map(x => x.m);
+}
+
 function colorSwatches(currentCi, memberName) {
-  return [0,1,2,3,4,5,6,7,8,9,10,11].map(c =>
-    `<span class="swatch res-c${c} ${c===currentCi?'selected':''}" onclick="setColor('${memberName.replace(/'/g,"\\'")}',${c})"></span>`
+  const esc = memberName.replace(/'/g,"\\'");
+  const none = `<span class="swatch swatch-none ${currentCi===null?'selected':''}" title="無色" onclick="setColor('${esc}',null)">×</span>`;
+  const colors = [0,1,2,3,4,5,6,7,8,9,10,11].map(c =>
+    `<span class="swatch res-c${c} ${c===currentCi?'selected':''}" onclick="setColor('${esc}',${c})"></span>`
   ).join('');
+  return none + colors;
 }
 
 function renderMemberModal() {
@@ -482,8 +516,8 @@ function renderMemberModal() {
 async function setColor(name, ci) {
   const m = MEMBERS.find(x => memberName(x) === name);
   if (!m) return;
-  const prevCi = typeof m === 'object' ? m.ci : 0;
-  if (typeof m === 'object') m.ci = ci;
+  const prevCi = typeof m === 'object' ? m.ci : null;
+  if (typeof m === 'object') m.ci = ci;  // null許容
   renderMemberModal();
   refresh();
   try {
@@ -503,16 +537,12 @@ async function addMember() {
   const name = input.value.trim();
   if (!name) { toast('名前を入力してください'); return; }
   if (MEMBERS.some(m => memberName(m) === name)) { toast('既に登録されています'); return; }
-  // 未使用の色を優先的に割当（12色）
-  const used = new Set(MEMBERS.map(m => ciOf(memberName(m))));
-  let ci = 0;
-  for (let c = 0; c < 12; c++) { if (!used.has(c)) { ci = c; break; } }
-  if (used.size >= 12) ci = MEMBERS.length % 12;
-  MEMBERS.push({name, ci});
+  // 登録時は無色（ci:null）— 色は管理画面で明示的に選択
+  MEMBERS.push({name, ci: null});
   renderMemberModal();
   toast(`${name}さんを追加しました`);
   try {
-    const res = await apiPost('addMember', {name, ci});
+    const res = await apiPost('addMember', {name, ci: null});
     if (!res.ok) throw new Error(res.error||'unknown');
     MEMBERS = res.members || MEMBERS;
     renderMemberModal();
@@ -596,8 +626,9 @@ function renderGrid() {
     reservations.filter(r=>r.date===ds).forEach(r=>{
       const sM=toM(r.start)-START_HOUR*60, eM=toM(r.end)-START_HOUR*60;
       const top=(sM/60)*HOUR_H, height=((eM-sM)/60)*HOUR_H;
-      const color = (ciOf(r.name) ?? r.ci) % 12;
-      h+=`<div class="res-block res-c${color}" style="top:${top}px;height:${height}px" onclick="openEdit(${typeof r.id==='string'?`'${r.id}'`:r.id})">
+      const ci = ciOf(r.name);
+      const colorClass = ci === null ? 'res-none' : `res-c${ci % 12}`;
+      h+=`<div class="res-block ${colorClass}" style="top:${top}px;height:${height}px" onclick="openEdit(${typeof r.id==='string'?`'${r.id}'`:r.id})">
         <div class="res-title">${r.name}</div><div class="res-purpose">${r.purpose||''}</div><div class="res-time">${r.start}–${r.end}</div></div>`;
     });
 
@@ -646,7 +677,7 @@ function updatePanel() {
   list.innerHTML=todayR.map(r=>{
     const past=toM(r.end)<=nowM;
     return `<div class="upcoming-item" style="${past?'opacity:0.4':''}">
-      <div class="upcoming-dot" style="background:${COLS[(ciOf(r.name) ?? r.ci)%12]}"></div>
+      <div class="upcoming-dot" style="background:${(function(){const c=ciOf(r.name);return c===null?'#ccc':COLS[c%12];})()}"></div>
       <div class="upcoming-info"><div class="upcoming-name">${r.name}</div>
       <div class="upcoming-time-text">${r.start}–${r.end}${r.purpose?' · '+r.purpose:''}</div></div>
       <button class="upcoming-del" onclick="confirmDel(${r.id})">✕</button></div>`;
@@ -664,7 +695,7 @@ function openNewModal(date,time){
   const raw=time||mToT(Math.ceil((new Date().getHours()*60+new Date().getMinutes())/15)*15);
   const t=raw.length===5?raw:raw.slice(0,5);
   const te=mToT(Math.min(toM(t)+60,END_HOUR*60));
-  const memberOpts=MEMBERS.map(m=>{const n=memberName(m);return `<option value="${n}">${n}</option>`;}).join('');
+  const memberOpts=sortedMembers().map(m=>{const n=memberName(m);return `<option value="${n}">${n}</option>`;}).join('');
   document.getElementById('modalBox').innerHTML=`
     <div class="modal-title">新規予約</div>
     <div class="field"><label>予約者名</label><select id="mName"><option value="">選択してください</option>${memberOpts}</select></div>
@@ -688,7 +719,7 @@ async function submitNew(){
   if(!start||!end){toast('時刻を選択してください');return;}
   if(toM(start)>=toM(end)){toast('終了は開始より後にしてください');return;}
   if(reservations.find(r=>r.date===date&&toM(r.start)<toM(end)&&toM(r.end)>toM(start))){toast('時間が重複しています');return;}
-  const ci = ciOf(name) ?? 0;
+  const ci = ciOf(name);  // null許容（メンバー側の色を参照するため）
   // 楽観的更新: サーバー応答を待たずに先にUI反映
   const tmpId = 'tmp_' + Date.now() + '_' + Math.random();
   reservations.push({id: tmpId, name, purpose, date, start, end, ci, _pending: true});
@@ -708,7 +739,7 @@ async function submitNew(){
 
 function openEdit(id){
   const r=reservations.find(x=>x.id===id); if(!r)return;
-  const memberOpts=MEMBERS.map(m=>{const n=memberName(m);return `<option value="${n}" ${n===r.name?'selected':''}>${n}</option>`;}).join('');
+  const memberOpts=sortedMembers().map(m=>{const n=memberName(m);return `<option value="${n}" ${n===r.name?'selected':''}>${n}</option>`;}).join('');
   document.getElementById('modalBox').innerHTML=`
     <div class="modal-title">予約を編集</div>
     <div class="field"><label>予約者名</label><select id="eName"><option value="">選択してください</option>${memberOpts}</select></div>
@@ -739,7 +770,7 @@ async function submitEdit(id){
   if(conflict){toast('時間が重複しています');return;}
   // 楽観的更新（名前変更に合わせて色も更新）
   const backup = {...r};
-  const newCi = ciOf(name) ?? (r.ci|0);
+  const newCi = ciOf(name);  // null許容
   r.name=name; r.purpose=purpose; r.date=date; r.start=start; r.end=end; r.ci=newCi;
   closeModal(); refresh(); toast('予約を更新しました');
   try {
@@ -798,4 +829,4 @@ setInterval(renderGrid,60000);
 setInterval(()=>{const n=new Date();document.getElementById('infoTime').textContent=String(n.getHours()).padStart(2,'0')+':'+String(n.getMinutes()).padStart(2,'0');},1000);
 </script>
 </body>
-</html>
+</html
