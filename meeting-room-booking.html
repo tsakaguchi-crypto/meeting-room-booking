@@ -167,12 +167,18 @@
   }
   .field select:focus { outline: none; border-color: #1a73e8; }
 
-  .res-c0 { background: #d4e4fd; border-color: #1a73e8; color: #174ea6; }
-  .res-c1 { background: #fce8e6; border-color: #d93025; color: #a50e0e; }
-  .res-c2 { background: #e6f4ea; border-color: #188038; color: #0d652d; }
-  .res-c3 { background: #fef7e0; border-color: #f9ab00; color: #7c5800; }
-  .res-c4 { background: #f3e8fd; border-color: #8430ce; color: #5b1d99; }
-  .res-c5 { background: #e0f5f5; border-color: #009688; color: #00695c; }
+  .res-c0  { background: #d4e4fd; border-color: #1a73e8; color: #174ea6; }
+  .res-c1  { background: #fce8e6; border-color: #d93025; color: #a50e0e; }
+  .res-c2  { background: #e6f4ea; border-color: #188038; color: #0d652d; }
+  .res-c3  { background: #fef7e0; border-color: #f9ab00; color: #7c5800; }
+  .res-c4  { background: #f3e8fd; border-color: #8430ce; color: #5b1d99; }
+  .res-c5  { background: #e0f5f5; border-color: #009688; color: #00695c; }
+  .res-c6  { background: #fde7d0; border-color: #e8710a; color: #9e4a00; }
+  .res-c7  { background: #fce4ec; border-color: #e91e63; color: #ad1457; }
+  .res-c8  { background: #d9eefb; border-color: #039be5; color: #01579b; }
+  .res-c9  { background: #e8f5d7; border-color: #7cb342; color: #33691e; }
+  .res-c10 { background: #efebe9; border-color: #795548; color: #3e2723; }
+  .res-c11 { background: #e0e4f0; border-color: #3f51b5; color: #1a237e; }
 
   .now-line {
     position: absolute; left: 0; right: 0;
@@ -313,6 +319,19 @@
 
   .member-item button:hover { border-color: #d93025; color: #d93025; }
 
+  .member-item .member-name { flex: 1; }
+  .swatches { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-right: 8px; max-width: 180px; justify-content: flex-end; }
+  .swatch {
+    width: 18px; height: 18px; border-radius: 50%;
+    cursor: pointer; display: inline-block;
+    border: 2px solid transparent;
+    box-sizing: border-box;
+  }
+  .swatch.selected {
+    border-color: #333;
+    box-shadow: 0 0 0 1px #fff inset;
+  }
+
   .member-add-row { display: flex; gap: 8px; margin-top: 12px; }
 
   .member-add-row input {
@@ -390,7 +409,7 @@ const START_HOUR = 8, END_HOUR = 21, HOUR_H = 60;
 let nextId = 100;
 
 // ====== Google Apps Script Web App URL を貼り付け ======
-const API_URL = 'https://script.google.com/macros/s/AKfycbxWreQdp-300qSk16tTPb9u71pWFtbK4Psa5-qXkBUuNZWdcYs3LRoN2DRC8DEoNfZq/exec';
+const API_URL = 'https://script.google.com/macros/s/AKfycbyNkB4tJhyHmBaP-HE4XvkDyb2q9j3fOHMuxMDTgEsqSMf46ZXeIceg-TRJSI8c5BSD9A/exec';
 // =======================================================
 
 let MEMBERS = [];
@@ -424,10 +443,30 @@ function openMemberModal() {
   document.getElementById('modalBg').classList.add('open');
 }
 
-function renderMemberModal() {
-  const list = MEMBERS.map((m,i) =>
-    `<div class="member-item"><span>${m}</span><button onclick="removeMember(${i})">✕</button></div>`
+// メンバー名から対応する色indexを取得（未登録メンバーは null）
+function ciOf(name) {
+  const m = MEMBERS.find(x => (typeof x === 'object' ? x.name : x) === name);
+  if (!m) return null;
+  return (typeof m === 'object' ? (m.ci|0) : 0);
+}
+function memberName(m) { return typeof m === 'object' ? m.name : m; }
+
+function colorSwatches(currentCi, memberName) {
+  return [0,1,2,3,4,5,6,7,8,9,10,11].map(c =>
+    `<span class="swatch res-c${c} ${c===currentCi?'selected':''}" onclick="setColor('${memberName.replace(/'/g,"\\'")}',${c})"></span>`
   ).join('');
+}
+
+function renderMemberModal() {
+  const list = MEMBERS.map((m,i) => {
+    const name = memberName(m);
+    const ci = ciOf(name);
+    return `<div class="member-item">
+      <span class="mname">${name}</span>
+      <span class="swatches">${colorSwatches(ci, name)}</span>
+      <button onclick="removeMember(${i})">✕</button>
+    </div>`;
+  }).join('');
   document.getElementById('modalBox').innerHTML = `
     <div class="modal-title">メンバー管理</div>
     <div class="member-list">${list || '<div style="padding:12px;text-align:center;color:#aaa">メンバーなし</div>'}</div>
@@ -440,28 +479,53 @@ function renderMemberModal() {
     </div>`;
 }
 
+async function setColor(name, ci) {
+  const m = MEMBERS.find(x => memberName(x) === name);
+  if (!m) return;
+  const prevCi = typeof m === 'object' ? m.ci : 0;
+  if (typeof m === 'object') m.ci = ci;
+  renderMemberModal();
+  refresh();
+  try {
+    const res = await apiPost('setMemberColor', {name, ci});
+    if (!res.ok) throw new Error(res.error||'unknown');
+    MEMBERS = res.members || MEMBERS;
+    renderMemberModal(); refresh();
+  } catch(e) {
+    if (typeof m === 'object') m.ci = prevCi;
+    renderMemberModal(); refresh();
+    toast('色変更に失敗しました: ' + e.message);
+  }
+}
+
 async function addMember() {
   const input = document.getElementById('newMemberName');
   const name = input.value.trim();
   if (!name) { toast('名前を入力してください'); return; }
-  if (MEMBERS.includes(name)) { toast('既に登録されています'); return; }
-  MEMBERS.push(name);
+  if (MEMBERS.some(m => memberName(m) === name)) { toast('既に登録されています'); return; }
+  // 未使用の色を優先的に割当（12色）
+  const used = new Set(MEMBERS.map(m => ciOf(memberName(m))));
+  let ci = 0;
+  for (let c = 0; c < 12; c++) { if (!used.has(c)) { ci = c; break; } }
+  if (used.size >= 12) ci = MEMBERS.length % 12;
+  MEMBERS.push({name, ci});
   renderMemberModal();
   toast(`${name}さんを追加しました`);
   try {
-    const res = await apiPost('addMember', {name});
+    const res = await apiPost('addMember', {name, ci});
     if (!res.ok) throw new Error(res.error||'unknown');
     MEMBERS = res.members || MEMBERS;
     renderMemberModal();
   } catch(e) {
-    MEMBERS = MEMBERS.filter(m => m !== name);
+    MEMBERS = MEMBERS.filter(m => memberName(m) !== name);
     renderMemberModal();
     toast('追加に失敗しました: ' + e.message);
   }
 }
 
 async function removeMember(idx) {
-  const name = MEMBERS[idx];
+  const m = MEMBERS[idx];
+  const name = memberName(m);
   MEMBERS.splice(idx, 1);
   renderMemberModal();
   toast(`${name}さんを削除しました`);
@@ -471,7 +535,7 @@ async function removeMember(idx) {
     MEMBERS = res.members || MEMBERS;
     renderMemberModal();
   } catch(e) {
-    MEMBERS.push(name);
+    MEMBERS.push(m);
     renderMemberModal();
     toast('削除に失敗しました: ' + e.message);
   }
@@ -532,7 +596,8 @@ function renderGrid() {
     reservations.filter(r=>r.date===ds).forEach(r=>{
       const sM=toM(r.start)-START_HOUR*60, eM=toM(r.end)-START_HOUR*60;
       const top=(sM/60)*HOUR_H, height=((eM-sM)/60)*HOUR_H;
-      h+=`<div class="res-block res-c${r.ci%6}" style="top:${top}px;height:${height}px" onclick="openEdit(${r.id})">
+      const color = (ciOf(r.name) ?? r.ci) % 12;
+      h+=`<div class="res-block res-c${color}" style="top:${top}px;height:${height}px" onclick="openEdit(${typeof r.id==='string'?`'${r.id}'`:r.id})">
         <div class="res-title">${r.name}</div><div class="res-purpose">${r.purpose||''}</div><div class="res-time">${r.start}–${r.end}</div></div>`;
     });
 
@@ -576,12 +641,12 @@ function updatePanel() {
 
   const list=document.getElementById('upcomingList');
   const todayR=reservations.filter(r=>r.date===today).sort((a,b)=>toM(a.start)-toM(b.start));
-  const COLS=['#1a73e8','#d93025','#188038','#f9ab00','#8430ce','#009688'];
+  const COLS=['#1a73e8','#d93025','#188038','#f9ab00','#8430ce','#009688','#e8710a','#e91e63','#039be5','#7cb342','#795548','#3f51b5'];
   if(!todayR.length) { list.innerHTML='<div style="padding:20px;text-align:center;color:#aaa;font-size:13px">予約なし</div>'; return; }
   list.innerHTML=todayR.map(r=>{
     const past=toM(r.end)<=nowM;
     return `<div class="upcoming-item" style="${past?'opacity:0.4':''}">
-      <div class="upcoming-dot" style="background:${COLS[r.ci%6]}"></div>
+      <div class="upcoming-dot" style="background:${COLS[(ciOf(r.name) ?? r.ci)%12]}"></div>
       <div class="upcoming-info"><div class="upcoming-name">${r.name}</div>
       <div class="upcoming-time-text">${r.start}–${r.end}${r.purpose?' · '+r.purpose:''}</div></div>
       <button class="upcoming-del" onclick="confirmDel(${r.id})">✕</button></div>`;
@@ -599,7 +664,7 @@ function openNewModal(date,time){
   const raw=time||mToT(Math.ceil((new Date().getHours()*60+new Date().getMinutes())/15)*15);
   const t=raw.length===5?raw:raw.slice(0,5);
   const te=mToT(Math.min(toM(t)+60,END_HOUR*60));
-  const memberOpts=MEMBERS.map(m=>`<option value="${m}">${m}</option>`).join('');
+  const memberOpts=MEMBERS.map(m=>{const n=memberName(m);return `<option value="${n}">${n}</option>`;}).join('');
   document.getElementById('modalBox').innerHTML=`
     <div class="modal-title">新規予約</div>
     <div class="field"><label>予約者名</label><select id="mName"><option value="">選択してください</option>${memberOpts}</select></div>
@@ -623,7 +688,7 @@ async function submitNew(){
   if(!start||!end){toast('時刻を選択してください');return;}
   if(toM(start)>=toM(end)){toast('終了は開始より後にしてください');return;}
   if(reservations.find(r=>r.date===date&&toM(r.start)<toM(end)&&toM(r.end)>toM(start))){toast('時間が重複しています');return;}
-  const ci = Math.floor(Math.random()*6);
+  const ci = ciOf(name) ?? 0;
   // 楽観的更新: サーバー応答を待たずに先にUI反映
   const tmpId = 'tmp_' + Date.now() + '_' + Math.random();
   reservations.push({id: tmpId, name, purpose, date, start, end, ci, _pending: true});
@@ -643,7 +708,7 @@ async function submitNew(){
 
 function openEdit(id){
   const r=reservations.find(x=>x.id===id); if(!r)return;
-  const memberOpts=MEMBERS.map(m=>`<option value="${m}" ${m===r.name?'selected':''}>${m}</option>`).join('');
+  const memberOpts=MEMBERS.map(m=>{const n=memberName(m);return `<option value="${n}" ${n===r.name?'selected':''}>${n}</option>`;}).join('');
   document.getElementById('modalBox').innerHTML=`
     <div class="modal-title">予約を編集</div>
     <div class="field"><label>予約者名</label><select id="eName"><option value="">選択してください</option>${memberOpts}</select></div>
@@ -672,12 +737,13 @@ async function submitEdit(id){
   if(toM(start)>=toM(end)){toast('終了は開始より後にしてください');return;}
   const conflict=reservations.find(x=>x.id!==id&&x.date===date&&toM(x.start)<toM(end)&&toM(x.end)>toM(start));
   if(conflict){toast('時間が重複しています');return;}
-  // 楽観的更新
+  // 楽観的更新（名前変更に合わせて色も更新）
   const backup = {...r};
-  r.name=name; r.purpose=purpose; r.date=date; r.start=start; r.end=end;
+  const newCi = ciOf(name) ?? (r.ci|0);
+  r.name=name; r.purpose=purpose; r.date=date; r.start=start; r.end=end; r.ci=newCi;
   closeModal(); refresh(); toast('予約を更新しました');
   try {
-    const res = await apiPost('updateReservation', {id, name, purpose, date, start, end, ci: r.ci|0});
+    const res = await apiPost('updateReservation', {id, name, purpose, date, start, end, ci: newCi});
     if(!res.ok){ throw new Error(res.error||'unknown'); }
     reservations = res.reservations || reservations;
     refresh();
